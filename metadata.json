@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Jan-Sahayak: Unified Grievance Redressal",
+  "description": "A streamlined government complaint platform that uses AI to automatically classify grievances into administrative levels and departments, featuring voice-to-text dictation.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
