@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import ComplaintForm from './components/ComplaintForm';
@@ -8,57 +8,105 @@ import Dashboard from './components/Dashboard';
 import Departments from './components/Departments';
 import { Complaint, AdminLevel } from './types';
 import { Language, translations } from './translations';
-
-const INITIAL_HISTORICAL_GRIEVANCES: Complaint[] = [
-  {
-    id: 'GR-882192',
-    text: 'Extremely large and dangerous pothole near the central vegetable market entrance. It has been causing traffic blocks for a week.',
-    status: 'Resolved',
-    timestamp: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
-    beforePhotoUrl: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&q=80&w=800',
-    afterPhotoUrl: 'https://images.unsplash.com/photo-1506606401543-2e7398e5befc?auto=format&fit=crop&q=80&w=800',
-    classification: {
-      level: AdminLevel.MUNICIPAL,
-      department: 'Road and Transport',
-      summary: 'Emergency structural road repair at Central Market Entrance.',
-      urgency: 'High',
-      reasoning: 'Critical safety hazard in a high-density commercial area.',
-      assignedOfficial: { name: 'Er. Arun Kumar', designation: 'Asst. Executive Engineer (PWD)', phone: '9876543210' },
-      estimatedTimelineDays: 3,
-      initialProgress: 100
-    }
-  }
-];
-
-type AppView = 'register' | 'dashboard' | 'departments';
+import { supabase } from './services/supabase';
 
 const App: React.FC = () => {
-  const [complaints, setComplaints] = useState<Complaint[]>(INITIAL_HISTORICAL_GRIEVANCES);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [activeComplaintId, setActiveComplaintId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<AppView>('register');
+  const [currentView, setCurrentView] = useState<'register' | 'dashboard' | 'departments'>('register');
   const [language, setLanguage] = useState<Language>('en');
+  const [isLoading, setIsLoading] = useState(true);
 
   const t = translations[language];
 
-  const handleNewComplaint = (complaint: Complaint) => {
-    const complaintWithPhotos: Complaint = {
-      ...complaint,
-      status: 'Processing',
-      beforePhotoUrl: 'https://images.unsplash.com/photo-1584462942733-685b306b9b3e?auto=format&fit=crop&q=80&w=800',
+  // Fetch initial data from Supabase
+  useEffect(() => {
+    const fetchComplaints = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('complaints')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching complaints:', error);
+      } else if (data) {
+        // Map Supabase column names to frontend interface names
+        const mappedData = data.map((item: any) => ({
+          ...item,
+          timestamp: new Date(item.timestamp),
+          beforePhotoUrl: item.before_photo_url,
+          afterPhotoUrl: item.after_photo_url
+        }));
+        setComplaints(mappedData);
+      }
+      setIsLoading(false);
     };
-    setComplaints(prev => [complaintWithPhotos, ...prev]);
-    setActiveComplaintId(complaint.id);
+
+    fetchComplaints();
+  }, []);
+
+  const handleNewComplaint = async (complaint: Complaint) => {
+    const beforePhotoUrl = 'https://images.unsplash.com/photo-1584462942733-685b306b9b3e?auto=format&fit=crop&q=80&w=800';
+    
+    const dbPayload = {
+      id: complaint.id,
+      text: complaint.text,
+      status: 'Processing',
+      timestamp: complaint.timestamp.toISOString(),
+      classification: complaint.classification,
+      before_photo_url: beforePhotoUrl
+    };
+
+    const { error } = await supabase.from('complaints').insert([dbPayload]);
+
+    if (error) {
+      console.error('Error saving new complaint:', error);
+      alert('Failed to save to database. Check console.');
+    } else {
+      const complaintWithPhotos: Complaint = {
+        ...complaint,
+        status: 'Processing',
+        beforePhotoUrl: beforePhotoUrl,
+      };
+      setComplaints(prev => [complaintWithPhotos, ...prev]);
+      setActiveComplaintId(complaint.id);
+    }
   };
 
-  const handleResolveComplaint = (id: string, afterPhotoUrl: string) => {
-    setComplaints(prev => prev.map(c => 
-      c.id === id ? { ...c, status: 'Resolved', afterPhotoUrl } : c
-    ));
+  const handleResolveComplaint = async (id: string, afterPhotoUrl: string) => {
+    const { error } = await supabase
+      .from('complaints')
+      .update({ 
+        status: 'Resolved', 
+        after_photo_url: afterPhotoUrl 
+      })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating complaint:', error);
+      alert('Failed to update status in database.');
+    } else {
+      setComplaints(prev => prev.map(c => 
+        c.id === id ? { ...c, status: 'Resolved', afterPhotoUrl } : c
+      ));
+    }
   };
 
   const activeComplaint = complaints.find(c => c.id === activeComplaintId);
 
   const renderContent = () => {
+    if (isLoading && complaints.length === 0) {
+      return (
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Syncing with Government Servers...</p>
+          </div>
+        </div>
+      );
+    }
+
     switch (currentView) {
       case 'departments':
         return <Departments language={language} />;
@@ -97,7 +145,6 @@ const App: React.FC = () => {
                   {t.heroSubtitle}
                 </p>
 
-                {/* Simplified Info Grid for professional clarity */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-12 w-full px-6 animate-in fade-in zoom-in-95 duration-1000 delay-500">
                   {[
                     { title: t.step1Title, desc: t.step1Desc, icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" },
@@ -118,16 +165,12 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            {/* Main Application Area */}
             <section className="max-w-screen-2xl mx-auto px-6 lg:px-12 -mt-24 pb-48">
               <div className="flex flex-col gap-24">
-                
-                {/* Form Section */}
                 <div className="w-full">
                   <ComplaintForm onComplaintSubmitted={handleNewComplaint} language={language} />
                 </div>
 
-                {/* Tracking/Live View Section */}
                 <div className="w-full space-y-20">
                   {activeComplaint ? (
                     <div id="tracker-anchor" className="animate-in fade-in slide-in-from-bottom-12 duration-1000">
@@ -166,7 +209,6 @@ const App: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Activity Log */}
                   {complaints.length > 0 && (
                     <div className="bg-white rounded-[5rem] shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-200">
                       <div className="px-16 py-12 border-b border-slate-50 bg-slate-50/30 flex justify-between items-end">

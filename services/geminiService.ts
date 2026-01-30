@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ClassificationResult } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const classifyComplaint = async (complaintText: string): Promise<ClassificationResult> => {
   const response = await ai.models.generateContent({
